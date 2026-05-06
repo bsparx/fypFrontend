@@ -68,10 +68,24 @@ function parseEnvBoolean(
   defaultValue: boolean,
 ): boolean {
   if (value === undefined || value === null) return defaultValue;
-  const cleaned = value.trim().replace(/^['"]+|['"]+$/g, "").trim().toLowerCase();
-  if (cleaned === "true" || cleaned === "1" || cleaned === "yes" || cleaned === "on")
+  const cleaned = value
+    .trim()
+    .replace(/^['"]+|['"]+$/g, "")
+    .trim()
+    .toLowerCase();
+  if (
+    cleaned === "true" ||
+    cleaned === "1" ||
+    cleaned === "yes" ||
+    cleaned === "on"
+  )
     return true;
-  if (cleaned === "false" || cleaned === "0" || cleaned === "no" || cleaned === "off")
+  if (
+    cleaned === "false" ||
+    cleaned === "0" ||
+    cleaned === "no" ||
+    cleaned === "off"
+  )
     return false;
   return defaultValue;
 }
@@ -2281,6 +2295,7 @@ export async function POST(request: Request) {
       // Force chat completions so SDK does not call /v1/responses.
       model: ragModelProvider.chat(RAG_MODEL_NAME),
       temperature: 0,
+
       system: [
         SYSTEM_PROMPT,
         "You can use retrieval tools to answer patient metric questions.",
@@ -2519,7 +2534,7 @@ export async function POST(request: Request) {
             ),
         }),
       },
-      stopWhen: stepCountIs(5),
+      stopWhen: stepCountIs(10),
       providerOptions: {
         openai: {
           parallelToolCalls: false,
