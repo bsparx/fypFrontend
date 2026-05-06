@@ -63,27 +63,44 @@ const RAG_RETRY_BASE_DELAY_MS = Math.max(
   0,
   Number.parseInt(process.env.RAG_RETRY_BASE_DELAY_MS ?? "250", 10) || 250,
 );
+function parseEnvBoolean(
+  value: string | undefined,
+  defaultValue: boolean,
+): boolean {
+  if (value === undefined || value === null) return defaultValue;
+  const cleaned = value.trim().replace(/^['"]+|['"]+$/g, "").trim().toLowerCase();
+  if (cleaned === "true" || cleaned === "1" || cleaned === "yes" || cleaned === "on")
+    return true;
+  if (cleaned === "false" || cleaned === "0" || cleaned === "no" || cleaned === "off")
+    return false;
+  return defaultValue;
+}
+
 const RAG_UPSTREAM_TIMEOUT_MS = Math.max(
   10000,
   Number.parseInt(process.env.RAG_UPSTREAM_TIMEOUT_MS ?? "45000", 10) || 45000,
 );
-const STRUCTURED_TOOL_CALLING_ENABLED =
-  (process.env.STRUCTURED_TOOL_CALLING_ENABLED ?? "false").toLowerCase() ===
-  "true";
-const STRUCTURED_TOOL_DEBUG_LOGS_ENABLED =
-  (process.env.STRUCTURED_TOOL_DEBUG_LOGS_ENABLED ?? "true").toLowerCase() ===
-  "true";
-const CHAT_DEBUG_LOGS_ENABLED =
-  (process.env.CHAT_DEBUG_LOGS_ENABLED ?? "true").toLowerCase() === "true";
+const STRUCTURED_TOOL_CALLING_ENABLED = true;
+const STRUCTURED_TOOL_DEBUG_LOGS_ENABLED = parseEnvBoolean(
+  process.env.STRUCTURED_TOOL_DEBUG_LOGS_ENABLED,
+  true,
+);
+const CHAT_DEBUG_LOGS_ENABLED = parseEnvBoolean(
+  process.env.CHAT_DEBUG_LOGS_ENABLED,
+  true,
+);
 const NEO4J_URI = process.env.NEO4J_URI?.trim() ?? "";
 const NEO4J_USERNAME = process.env.NEO4J_USERNAME?.trim() ?? "";
 const NEO4J_PASSWORD = process.env.NEO4J_PASSWORD ?? "";
 const NEO4J_DATABASE = process.env.NEO4J_DATABASE?.trim() || undefined;
-const RAG_PRESERVE_THINKING_ENABLED =
-  (process.env.RAG_PRESERVE_THINKING_ENABLED ?? "false").toLowerCase() ===
-  "true";
-const SEMANTIC_SEND_REASONING =
-  (process.env.SEMANTIC_SEND_REASONING ?? "false").toLowerCase() === "true";
+const RAG_PRESERVE_THINKING_ENABLED = parseEnvBoolean(
+  process.env.RAG_PRESERVE_THINKING_ENABLED,
+  false,
+);
+const SEMANTIC_SEND_REASONING = parseEnvBoolean(
+  process.env.SEMANTIC_SEND_REASONING,
+  false,
+);
 const SEMANTIC_MAX_OUTPUT_TOKENS = Math.max(
   128,
   Number.parseInt(process.env.SEMANTIC_MAX_OUTPUT_TOKENS ?? "700", 10) || 700,
@@ -2228,6 +2245,14 @@ export async function POST(request: Request) {
     }
 
     // Explicitly gate tool-calling because not all OpenAI-compatible endpoints support tool payloads.
+    if (CHAT_DEBUG_LOGS_ENABLED) {
+      console.info("[Chat] Tool calling gate", {
+        enabled: STRUCTURED_TOOL_CALLING_ENABLED,
+        rawEnv: process.env.STRUCTURED_TOOL_CALLING_ENABLED,
+        modelUrl: RAG_MODEL_BASE_URL,
+        modelName: RAG_MODEL_NAME,
+      });
+    }
     if (!STRUCTURED_TOOL_CALLING_ENABLED) {
       const groundedPrompt = await buildGroundedPrompt(messages, chatContext);
 

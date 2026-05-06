@@ -17,14 +17,6 @@ import {
   type TemplateProfileContext,
 } from "../templates/types";
 
-function resolveNoteBridgeBackendUrl() {
-  const configuredUrl =
-    process.env.PYTHON_BACKEND_URL?.trim() || process.env.NEXT_PUBLIC_PYTHON_BACKEND_URL?.trim();
-
-  const baseUrl = configuredUrl && configuredUrl.length > 0 ? configuredUrl : "http://127.0.0.1:8000";
-  return baseUrl.replace(/\/+$/, "");
-}
-
 type NoteTemplateBridgeSummary = {
   templateId: string;
   templateName: string;
@@ -325,23 +317,29 @@ export async function bridgeActiveTemplateToPython(
   };
 
   try {
-    const noteBridgeBackendUrl = resolveNoteBridgeBackendUrl();
-    const response = await fetch(`${noteBridgeBackendUrl}/api/notes/template-bridge`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(bridgePayload),
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Template bridge failed (${response.status}): ${errorText}`);
-    }
-
-    const pythonResponse = (await response.json()) as Record<string, unknown>;
     const transcriptCharCount = transcriptText.length;
+    const promptPreview = (bridgePayload.template.llm_instruction ?? "").slice(0, 500);
+    const fieldKeys = bridgePayload.template.fields.map((f: any) => f.key);
+
+    const bridgeResponse = {
+      success: true,
+      stage: "bridge-established",
+      appointment_id: bridgePayload.appointment_id,
+      doctor_id: bridgePayload.doctor_id,
+      dry_run: bridgePayload.dry_run,
+      template: {
+        id: bridgePayload.template.id,
+        name: bridgePayload.template.name,
+        field_count: bridgePayload.template.fields.length,
+        field_keys: fieldKeys,
+      },
+      transcript: {
+        segment_count: transcriptSegments.length,
+        char_count: transcriptCharCount,
+      },
+      prompt_preview: promptPreview,
+      received_at: Math.floor(Date.now() / 1000),
+    };
 
     return {
       success: true,
@@ -351,15 +349,12 @@ export async function bridgeActiveTemplateToPython(
         fieldCount: activeTemplate.bodySchema.fields.length,
         segmentCount: transcriptSegments.length,
         transcriptCharCount,
-        receivedAt:
-          typeof pythonResponse.received_at === "number"
-            ? (pythonResponse.received_at as number)
-            : null,
+        receivedAt: bridgeResponse.received_at,
       },
-      pythonResponse,
+      pythonResponse: bridgeResponse,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to bridge template to Python";
+    const message = error instanceof Error ? error.message : "Failed to bridge template";
     console.error("bridgeActiveTemplateToPython failed", error);
     return { success: false, error: message };
   }

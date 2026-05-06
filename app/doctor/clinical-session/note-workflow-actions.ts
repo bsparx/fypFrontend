@@ -3,6 +3,7 @@
 import { Prisma } from "@prisma/client";
 import { currentUser } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import OpenAI from "openai";
 
 import { prisma } from "@/lib/prisma";
 import {
@@ -22,12 +23,35 @@ import {
 
 const db = prisma as any;
 
-function resolveNoteBackendUrl() {
-  const configuredUrl =
-    process.env.PYTHON_BACKEND_URL?.trim() || process.env.NEXT_PUBLIC_PYTHON_BACKEND_URL?.trim();
+const GEMMA_BASE_URL =
+  process.env.GEMMA_BASE_URL?.trim() ||
+  "https://muddasirjaved666--example-gemma-4-e2b-autoround-it-infer-780f02.modal.run/v1";
+const GEMMA_API_KEY = "sk-dummy-anything";
+const GEMMA_MODEL =
+  process.env.GEMMA_MODEL?.trim() || "cyankiwi/gemma-4-E4B-it-AWQ-INT4";
 
-  const baseUrl = configuredUrl && configuredUrl.length > 0 ? configuredUrl : "http://127.0.0.1:8000";
-  return baseUrl.replace(/\/+$/, "");
+const openai = new OpenAI({
+  apiKey: GEMMA_API_KEY,
+  baseURL: GEMMA_BASE_URL,
+});
+
+async function gemmaChat(
+  messages: Array<{ role: string; content: string }>
+): Promise<string> {
+  const res = await openai.chat.completions.create({
+    model: GEMMA_MODEL,
+    messages: messages as any,
+    temperature: 0.1,
+    response_format: { type: "json_object" },
+  });
+  return res.choices[0]?.message?.content || "{}";
+}
+
+function stripJsonFences(text: string): string {
+  return text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/, "")
+    .trim();
 }
 
 import { mapRecordToSoapTemplate } from "@/lib/template-utils";
@@ -311,37 +335,35 @@ export async function generateAppointmentNoteFromTemplate(
   };
 
   try {
-    const noteBackendUrl = resolveNoteBackendUrl();
-    const response = await fetch(`${noteBackendUrl}/api/notes/generate-from-template`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(120000),
-      cache: "no-store",
-    });
+    const fieldKeys = payload.template.fields.map((f: any) => f.key);
+    const shapeHint = payload.template.strict_shape_example || Object.fromEntries(fieldKeys.map((k: string) => [k, "string (required)"]));
 
-    if (!response.ok) {
-      const rawErrorText = await response.text();
-      let errorDetail = rawErrorText;
+    const generationPrompt =
+      `Generate structured clinical note JSON from transcript.\n` +
+      `Return ONLY valid JSON object (no markdown, no explanations).\n` +
+      `Use exactly the required keys and no extras.\n\n` +
+      `Template instruction:\n${payload.template.llm_instruction}\n\n` +
+      `Required keys:\n${JSON.stringify(fieldKeys, null, 2)}\n\n` +
+      `Shape hint:\n${JSON.stringify(shapeHint, null, 2)}\n\n` +
+      `Metadata:\n${JSON.stringify(payload.metadata || {}, null, 2)}\n\n` +
+      `Transcript:\n${payload.transcript_text}`;
 
-      try {
-        const parsed = JSON.parse(rawErrorText) as { detail?: string };
-        if (typeof parsed.detail === "string" && parsed.detail.trim().length > 0) {
-          errorDetail = parsed.detail;
-        }
-      } catch {
-        // Keep raw text when response body is not JSON.
-      }
+    const raw = await gemmaChat([{ role: "user", content: generationPrompt }]);
 
-      const compactDetail = errorDetail.replace(/\s+/g, " ").trim().slice(0, 320);
-      throw new Error(`Note generation failed (${response.status}): ${compactDetail}`);
+    let noteData: Record<string, unknown>;
+    try {
+      noteData = JSON.parse(stripJsonFences(raw));
+    } catch {
+      throw new Error("Provider returned non-JSON note payload");
     }
 
-    const generationResult = (await response.json()) as {
-      note_data?: unknown;
-      generated_at?: number;
+    if (!noteData || typeof noteData !== "object" || Object.keys(noteData).length === 0) {
+      throw new Error("Provider returned empty note payload");
+    }
+
+    const generationResult = {
+      note_data: noteData,
+      generated_at: Math.floor(Date.now() / 1000),
     };
 
     const parsed = validateAndNormalizeLlmPayload(template, generationResult.note_data ?? {});
