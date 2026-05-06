@@ -35,6 +35,7 @@ function buildUrduPrompt(hasPreviousContext: boolean, formattedRules: string) {
 ${formattedRules}
 
 SPEAKER IDENTIFICATION (بولنے والے کی شناخت):
+نوٹ: 90 فیصد اوقات میں، جو شخص سوالات پوچھ رہا ہے وہ ڈاکٹر ہوتا ہے، اور جو شخص جوابات دے رہا ہے وہ مریض ہوتا ہے۔
 - 'doctor' = کلینیشن (ڈاکٹر) جو سوالات پوچھ رہا ہے، ہدایات دے رہا ہے یا مشاہدات بتا رہا ہے۔
 - 'patient' = وہ شخص جو سوالات کا جواب دے رہا ہے، علامات بیان کر رہا ہے یا ردعمل دے رہا ہے۔
 
@@ -67,6 +68,7 @@ MANDATORY RULES FOR SPEAKER DIARIZATION AND CHUNK CONTINUITY:
 ${formattedRules}
 
 SPEAKER IDENTIFICATION:
+Note: 90% of the time, the one asking the questions is the doctor and the one answering the questions is the patient.
 - 'doctor' = The clinician asking questions, giving instructions, or stating clinical observations.
 - 'patient' = The person answering questions, describing symptoms, or reacting.
 
