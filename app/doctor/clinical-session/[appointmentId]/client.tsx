@@ -47,7 +47,10 @@ import { SessionRecordingActions } from "./components/session-recording-actions"
 import { Thread } from "@/components/thread";
 import { AssistantRuntimeProvider } from "@assistant-ui/react";
 import { AssistantChatTransport, useChatRuntime } from "@assistant-ui/react-ai-sdk";
-import { confirmAndSaveAppointmentTranscription } from "../transcription-workflow-actions";
+import {
+    confirmAndSaveAppointmentTranscription,
+    saveLiveTranscript,
+} from "../transcription-workflow-actions";
 import {
     generateAppointmentNoteFromTemplate,
     getActiveNoteTemplatesForSession,
@@ -550,10 +553,27 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
         setIsTranscribingLive(false);
         await stopChunker();
 
+        // Persist the live Gemma 4 transcript to the DB so it is not lost
+        // when upload triggers confirmAndSaveAppointmentTranscription.
+        if (transcript.length > 0) {
+            const liveSegments = transcript.map((seg) => ({
+                text: seg.text,
+                speaker: seg.speaker,
+                start: seg.start,
+                end: seg.end,
+                role: seg.role ?? null,
+            }));
+            try {
+                await saveLiveTranscript(currentAppointment.id, liveSegments);
+            } catch (err) {
+                console.error("Failed to save live transcript:", err);
+            }
+        }
+
         const audioFile = new File([audioBlob], `session-${currentAppointment.id}-${Date.now()}.webm`, { type: audioBlob.type });
 
         await uploadAudioFile(audioFile);
-    }, [currentAppointment.id, stopChunker, uploadAudioFile]);
+    }, [currentAppointment.id, stopChunker, uploadAudioFile, transcript]);
 
     const handleRecordingPauseChange = React.useCallback((paused: boolean) => {
         isRecorderPausedRef.current = paused;
