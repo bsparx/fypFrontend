@@ -14,8 +14,8 @@ interface ChunkApiResponse {
 }
 
 const SAMPLE_RATE = 32000;
-const MIN_CHUNK_SEC = 15;
-const MAX_CHUNK_SEC = 25; // Strictly below 30s
+const MIN_CHUNK_SEC = 10;
+const MAX_CHUNK_SEC = 28; // Strictly below 30s
 const SILENCE_SEC = 20;
 const SILENCE_THRESHOLD = 0.015;
 
@@ -29,6 +29,7 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
   const totalSamplesRef = useRef(0);
   const silenceSamplesRef = useRef(0);
   const lastSafeSplitRef = useRef(0); // Tracks the last brief pause to cut cleanly
+  const cumulativeSamplesSentRef = useRef(0); // Total samples sent to API so far
 
   const isPausedRef = useRef(false);
   const isActiveRef = useRef(false);
@@ -81,6 +82,11 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
       silenceSamplesRef.current = 0;
       lastSafeSplitRef.current = 0;
 
+      // Advance cumulative timeline even if chunk is discarded (tiny tail)
+      const chunkStartSec = cumulativeSamplesSentRef.current / SAMPLE_RATE;
+      const chunkDurationSec = chunkToProcess.length / SAMPLE_RATE;
+      cumulativeSamplesSentRef.current += chunkToProcess.length;
+
       // Skip tiny artifact chunks
       if (chunkToProcess.length < SAMPLE_RATE * 1) {
         isFlushingRef.current = false;
@@ -120,15 +126,74 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
         }
 
         const data = (await res.json()) as ChunkApiResponse;
-        const newSegments: TranscriptSegment[] = (data.segments || []).map(
-          (seg) => ({
+        const rawSegments = data.segments || [];
+
+        // Calculate timestamps proportionally by word count within this chunk
+        const wordCounts = rawSegments.map(
+          (seg) => seg.text.split(/\s+/).filter((w) => w.length > 0).length,
+        );
+        const totalWords = wordCounts.reduce((sum, c) => sum + c, 0);
+
+        let currentTime = chunkStartSec;
+        const newSegments: TranscriptSegment[] = rawSegments.map((seg, i) => {
+          let segDuration = 0;
+          if (totalWords > 0 && chunkDurationSec > 0) {
+            const wordsPerSec = totalWords / chunkDurationSec;
+            segDuration = wordCounts[i] / wordsPerSec;
+          } else if (rawSegments.length > 0 && chunkDurationSec > 0) {
+            segDuration = chunkDurationSec / rawSegments.length;
+          }
+          const start = currentTime;
+          const end = currentTime + segDuration;
+          currentTime = end;
+          return {
             text: seg.text.trim(),
             speaker: seg.type === "doctor" ? "Doctor" : "Patient",
             role: seg.type === "doctor" ? "Doctor" : "Patient",
-            start: 0,
-            end: 0,
-          }),
-        );
+            start,
+            end,
+          };
+        });
+
+        // Deduplicate repeated prefix when the same speaker's sentence was cut across chunks
+        const prevTranscript = transcriptRef.current;
+        if (prevTranscript.length > 0 && newSegments.length > 0) {
+          const last = prevTranscript[prevTranscript.length - 1];
+          const first = newSegments[0];
+
+          if (last.speaker === first.speaker && last.text.length > 0) {
+            const normLast = last.text.toLowerCase().replace(/\s+/g, " ").trim();
+            const normFirst = first.text.toLowerCase().replace(/\s+/g, " ").trim();
+
+            // Case 1: the entire last segment is repeated as a prefix of the first new segment
+            if (normFirst.startsWith(normLast)) {
+              const cutIndex = first.text.toLowerCase().indexOf(normLast) + normLast.length;
+              const remainder = first.text.slice(cutIndex).trim();
+              if (remainder.length > 0) {
+                first.text = remainder;
+              }
+            }
+            // Case 2: the last few words overlap at the start of the new segment (partial repetition)
+            else {
+              const lastWords = normLast.split(/\s+/);
+              // Try progressively shorter suffixes of the last segment
+              for (let w = lastWords.length; w > 0; w--) {
+                const suffix = lastWords.slice(-w).join(" ");
+                if (suffix.length === 0) continue;
+                const idx = normFirst.indexOf(suffix);
+                if (idx === 0) {
+                  // Found overlap at the very start
+                  const cutIndex = first.text.toLowerCase().indexOf(suffix) + suffix.length;
+                  const remainder = first.text.slice(cutIndex).trim();
+                  if (remainder.length > 0) {
+                    first.text = remainder;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
 
         setTranscript((prev) => {
           const next = [...prev, ...newSegments];
@@ -175,6 +240,7 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
       isActiveRef.current = true;
       isPausedRef.current = false;
       setError(null);
+      cumulativeSamplesSentRef.current = 0;
 
       abortControllerRef.current = new AbortController();
 
@@ -268,6 +334,7 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
     totalSamplesRef.current = 0;
     silenceSamplesRef.current = 0;
     lastSafeSplitRef.current = 0;
+    cumulativeSamplesSentRef.current = 0;
 
     if (processorRef.current) {
       try {

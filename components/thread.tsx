@@ -49,6 +49,7 @@ type ThreadProps = {
   patientName?: string;
   retrievalMode?: "normal" | "semantic";
   onToggleRetrievalMode?: () => void;
+  zoom?: number;
 };
 
 type RetrievalPreview = {
@@ -86,6 +87,7 @@ export const Thread: FC<ThreadProps> = ({
   patientName = "Patient",
   retrievalMode = "normal",
   onToggleRetrievalMode,
+  zoom = 1,
 }) => {
   return (
     <ThreadPrimitive.Root
@@ -94,6 +96,7 @@ export const Thread: FC<ThreadProps> = ({
         ["--thread-max-width" as string]: "100%",
         ["--composer-radius" as string]: "22px",
         ["--composer-padding" as string]: "8px",
+        zoom,
       }}
     >
       <ThreadPrimitive.Viewport

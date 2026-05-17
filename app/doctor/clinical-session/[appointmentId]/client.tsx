@@ -31,7 +31,10 @@ import {
     Link2,
     Upload,
     SlidersHorizontal,
-    Info
+    Info,
+    ZoomIn,
+    ZoomOut,
+    Type
 } from "lucide-react";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 
@@ -319,7 +322,6 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
     // State for recording and devices
     const [isUploading, setIsUploading] = React.useState(false);
     const [uploadProgress, setUploadProgress] = React.useState(0);
-    const [isProcessing, setIsProcessing] = React.useState(false);
     const [microphoneDevices, setMicrophoneDevices] = React.useState<MediaDeviceInfo[]>([]);
     const [selectedMicrophoneId, setSelectedMicrophoneId] = React.useState<string>("default");
     const [isLoadingMicrophones, setIsLoadingMicrophones] = React.useState(false);
@@ -328,6 +330,8 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
     const [activeMainTab, setActiveMainTab] = React.useState<ClinicalSessionTab>("context");
     const [isChatPanelOpen, setIsChatPanelOpen] = React.useState(false);
     const [isChatPanelContentVisible, setIsChatPanelContentVisible] = React.useState(false);
+    const [isChatPanelLoading, setIsChatPanelLoading] = React.useState(false);
+    const [chatZoom, setChatZoom] = React.useState(1);
     const [isRecorderPaused, setIsRecorderPaused] = React.useState(false);
     const [isTranscribingLive, setIsTranscribingLive] = React.useState(false);
     const [noteTemplates, setNoteTemplates] = React.useState<Array<{ id: string; name: string; description: string; template: SoapTemplate }>>([]);
@@ -616,9 +620,13 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
     }, []);
 
     async function uploadAudioFile(audioFile: File) {
-        setIsProcessing(true);
         setIsUploading(true);
         setUploadProgress(0);
+
+        toast({
+            title: "Uploading recording...",
+            description: "Your audio is being uploaded in the background. You can continue working.",
+        });
 
         await new Promise(resolve => setTimeout(resolve, 400));
 
@@ -647,7 +655,7 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                 console.log("Uploaded URL:", uploadedRecordingUrl);
                 setRecordingUrl(uploadedRecordingUrl);
 
-                const transcriptionResult = await confirmAndSaveAppointmentTranscription(currentAppointment.id);
+                const transcriptionResult = await confirmAndSaveAppointmentTranscription(currentAppointment.id, uploadedRecordingUrl);
 
                 const latestSessionData = await getClinicalSessionData(currentAppointment.id);
                 if (latestSessionData) {
@@ -657,7 +665,6 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                     }
                 }
                 setUploadProgress(100);
-                await new Promise(resolve => setTimeout(resolve, 500));
 
                 if (!transcriptionResult.success) {
                     toast({
@@ -681,7 +688,6 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
             });
         } finally {
             setIsUploading(false);
-            setIsProcessing(false);
         }
     }
 
@@ -1281,7 +1287,14 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
     };
 
     const handleToggleChatPane = React.useCallback(() => {
-        setIsChatPanelOpen((prev) => !prev);
+        setIsChatPanelOpen((prev) => {
+            const next = !prev;
+            if (next) {
+                setIsChatPanelLoading(true);
+                setTimeout(() => setIsChatPanelLoading(false), 1200);
+            }
+            return next;
+        });
     }, []);
 
     React.useEffect(() => {
@@ -1978,7 +1991,7 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                         className="absolute z-30 h-14 w-6 -translate-y-1/2 rounded-r-none rounded-l-lg border-r-0 bg-background/95 shadow-sm transition-all duration-300"
                         style={{
                             top: pullTabTop ? `${pullTabTop}px` : "50%",
-                            right: isChatPanelOpen ? "30rem" : "0.25rem",
+                            right: isChatPanelOpen ? "40rem" : "0.25rem",
                         }}
                         onClick={handleToggleChatPane}
                         aria-label={isChatPanelOpen ? "Collapse chat sidebar" : "Expand chat sidebar"}
@@ -1998,7 +2011,7 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
             <aside
                 id="clinical-chat-panel"
                 className={`h-full min-h-0 shrink-0 self-stretch border-l border-border/80 bg-card transition-all duration-300 ease-in-out ${isChatPanelOpen
-                    ? "w-[30rem] translate-x-0 opacity-100"
+                    ? "w-[40rem] translate-x-0 opacity-100"
                     : "w-0 translate-x-4 opacity-0 pointer-events-none"}`}
             >
                 <div className={`flex h-full min-h-0 flex-col transition-opacity duration-200 ease-out ${isChatPanelContentVisible ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
@@ -2007,10 +2020,37 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                             <MessageSquare className="h-4 w-4 text-muted-foreground" />
                             New chat
                         </div>
-                        <Button type="button" variant="ghost" size="sm" className="h-8 text-muted-foreground">
-                            <span className="text-xs">New chat</span>
-                            <ChevronDown className="h-3 w-3" />
-                        </Button>
+                        <div className="flex items-center gap-1">
+                            <div className="flex items-center rounded-md border bg-muted/40 px-1 py-0.5">
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setChatZoom((z) => Math.max(0.75, z - 0.1))}
+                                    title="Decrease text size"
+                                >
+                                    <ZoomOut className="h-3 w-3" />
+                                </Button>
+                                <span className="text-[10px] w-8 text-center tabular-nums font-medium text-muted-foreground">
+                                    {Math.round(chatZoom * 100)}%
+                                </span>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6"
+                                    onClick={() => setChatZoom((z) => Math.min(1.5, z + 0.1))}
+                                    title="Increase text size"
+                                >
+                                    <ZoomIn className="h-3 w-3" />
+                                </Button>
+                            </div>
+                            <Button type="button" variant="ghost" size="sm" className="h-8 text-muted-foreground">
+                                <span className="text-xs">New chat</span>
+                                <ChevronDown className="h-3 w-3" />
+                            </Button>
+                        </div>
                     </div>
 
                     <div className="flex-1 min-h-0 overflow-hidden">
@@ -2020,6 +2060,7 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                                     patientName={patientName}
                                     retrievalMode={retrievalMode}
                                     onToggleRetrievalMode={handleToggleRetrievalMode}
+                                    zoom={chatZoom}
                                 />
                             </AssistantRuntimeProvider>
                         )}
@@ -2028,37 +2069,7 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                 </div>
             </aside>
 
-            <Dialog open={isProcessing} onOpenChange={() => { }}>
-                <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
-                    <DialogHeader>
-                        <DialogTitle>{uploadProgress === 100 ? "Session Saved" : "Finalizing Session"}</DialogTitle>
-                        <DialogDescription>
-                            {uploadProgress === 100
-                                ? "Your recording has been successfully uploaded and linked to the patient record."
-                                : "Please wait while we upload and secure your clinical recording."}
-                        </DialogDescription>
-                    </DialogHeader>
-                    <div className="flex flex-col items-center justify-center py-6 space-y-4">
-                        {uploadProgress === 100 ? (
-                            <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center animate-in zoom-in duration-300">
-                                <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                </svg>
-                            </div>
-                        ) : (
-                            <>
-                                <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center relative">
-                                    <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
-                                </div>
-                                <div className="w-full max-w-[200px] bg-stone-100 rounded-full h-2 overflow-hidden">
-                                    <div className="h-full bg-blue-500 animate-[pulse_2s_cubic-bezier(0.4,0,0.6,1)_infinite] w-full origin-left" />
-                                </div>
-                                <p className="text-sm text-muted-foreground animate-pulse">Uploading audio data...</p>
-                            </>
-                        )}
-                    </div>
-                </DialogContent>
-            </Dialog>
+            {/* Non-blocking upload indicator */}
 
             <Dialog open={isWarmupDialogOpen} onOpenChange={() => { }}>
                 <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
@@ -2096,6 +2107,23 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                                 </Button>
                             </>
                         )}
+                    </div>
+                </DialogContent>
+            </Dialog>
+
+            <Dialog open={isChatPanelLoading} onOpenChange={() => { }}>
+                <DialogContent className="sm:max-w-md" onInteractOutside={(e) => e.preventDefault()}>
+                    <DialogHeader>
+                        <DialogTitle>Loading Clinical Assistant</DialogTitle>
+                        <DialogDescription>
+                            Please wait while the AI assistant initializes.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="flex flex-col items-center justify-center py-6 space-y-4">
+                        <div className="h-12 w-12 rounded-full bg-blue-50 flex items-center justify-center relative">
+                            <Loader2 className="h-6 w-6 text-blue-600 animate-spin" />
+                        </div>
+                        <p className="text-sm text-muted-foreground animate-pulse">Preparing chat environment...</p>
                     </div>
                 </DialogContent>
             </Dialog>
