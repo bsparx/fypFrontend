@@ -3,7 +3,7 @@ import OpenAI from "openai";
 
 const GEMMA_BASE_URL =
   process.env.GEMMA_BASE_URL?.trim() ||
-  "https://muddasirjaved666--example-gemma-4-e2b-autoround-it-infer-780f02.modal.run/v1";
+  "https://muddasirjaved10--example-gemma-4-e2b-autoround-it-infere-e112e1.modal.run/v1";
 const GEMMA_API_KEY = "sk-dummy-anything";
 const GEMMA_MODEL =
   process.env.GEMMA_MODEL?.trim() || "cyankiwi/gemma-4-E4B-it-AWQ-INT4";
@@ -210,15 +210,26 @@ export async function POST(req: NextRequest) {
         : [];
 
       // Validate: reject segments that contain Urdu script when English was requested
-      const validatedSegments = rawSegments.map((seg) => {
-        const text = String(seg.text ?? "").trim();
-        if (containsUrduScript(text)) {
-          console.warn("[transcribe-chunk] Urdu script detected in English mode:", text.slice(0, 100));
-          // Return empty text to signal mismatch — frontend can decide how to handle
-          return { type: seg.type?.toLowerCase() === "doctor" ? "doctor" : "patient", text: "" };
-        }
-        return { type: seg.type?.toLowerCase() === "doctor" ? "doctor" : "patient", text };
-      }).filter((seg) => seg.text.length > 0);
+      const validatedSegments = rawSegments
+        .map((seg) => {
+          const text = String(seg.text ?? "").trim();
+          if (containsUrduScript(text)) {
+            console.warn(
+              "[transcribe-chunk] Urdu script detected in English mode:",
+              text.slice(0, 100),
+            );
+            // Return empty text to signal mismatch — frontend can decide how to handle
+            return {
+              type: seg.type?.toLowerCase() === "doctor" ? "doctor" : "patient",
+              text: "",
+            };
+          }
+          return {
+            type: seg.type?.toLowerCase() === "doctor" ? "doctor" : "patient",
+            text,
+          };
+        })
+        .filter((seg) => seg.text.length > 0);
 
       return NextResponse.json({ segments: validatedSegments });
     }

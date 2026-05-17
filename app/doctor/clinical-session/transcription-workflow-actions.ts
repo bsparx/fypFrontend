@@ -11,7 +11,7 @@ const VOXTRAL_MODEL = "voxtral-mini-latest";
 
 const GEMMA_BASE_URL =
   process.env.GEMMA_BASE_URL?.trim() ||
-  "https://muddasirjaved666--example-gemma-4-e2b-autoround-it-infer-780f02.modal.run/v1";
+  "https://muddasirjaved10--example-gemma-4-e2b-autoround-it-infere-e112e1.modal.run/v1";
 const GEMMA_API_KEY = "sk-dummy-anything";
 const GEMMA_MODEL =
   process.env.GEMMA_MODEL?.trim() || "cyankiwi/gemma-4-E4B-it-AWQ-INT4";
@@ -22,7 +22,7 @@ const openai = new OpenAI({
 });
 
 async function gemmaChat(
-  messages: Array<{ role: string; content: string }>
+  messages: Array<{ role: string; content: string }>,
 ): Promise<string> {
   const res = await openai.chat.completions.create({
     model: GEMMA_MODEL,
@@ -51,13 +51,16 @@ function normaliseSpeaker(raw: unknown): string {
 
 function inferFilenameAndContentType(
   recordingUrl: string,
-  contentTypeHeader: string | null
+  contentTypeHeader: string | null,
 ): [string, string] {
   const url = new URL(recordingUrl);
   const pathName = decodeURIComponent(url.pathname || "");
   const fileName = pathName.split("/").pop() || "recording.webm";
 
-  const headerType = (contentTypeHeader || "").split(";")[0].trim().toLowerCase();
+  const headerType = (contentTypeHeader || "")
+    .split(";")[0]
+    .trim()
+    .toLowerCase();
   if (headerType) return [fileName, headerType];
 
   const ext = fileName.slice(fileName.lastIndexOf(".")).toLowerCase();
@@ -79,10 +82,15 @@ async function voxtralTranscribe(
   filename: string,
   contentType: string,
   strict: boolean = false,
-  maxRetries: number = 2
+  maxRetries: number = 2,
 ): Promise<{
   text: string;
-  segments: Array<{ text: string; speaker: string; start: number; end: number }>;
+  segments: Array<{
+    text: string;
+    speaker: string;
+    start: number;
+    end: number;
+  }>;
 }> {
   const apiKey = process.env.MISTRAL_API_KEY?.trim() || "";
 
@@ -105,7 +113,9 @@ async function voxtralTranscribe(
     formData.append(k, v);
   }
 
-  const transientStatuses = new Set([408, 429, 500, 502, 503, 504, 520, 522, 524]);
+  const transientStatuses = new Set([
+    408, 429, 500, 502, 503, 504, 520, 522, 524,
+  ]);
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -121,7 +131,7 @@ async function voxtralTranscribe(
         const bodyPreview = await resp.text();
         const rayId = resp.headers.get("cf-ray");
         console.error(
-          `[Voxtral API HTTP ${resp.status} Error] attempt=${attempt + 1}/${maxRetries + 1} ray=${rayId}: ${bodyPreview.slice(0, 2000)}`
+          `[Voxtral API HTTP ${resp.status} Error] attempt=${attempt + 1}/${maxRetries + 1} ray=${rayId}: ${bodyPreview.slice(0, 2000)}`,
         );
 
         if (transientStatuses.has(resp.status) && attempt < maxRetries) {
@@ -130,7 +140,9 @@ async function voxtralTranscribe(
         }
 
         if (strict) {
-          throw new Error(`Voxtral upstream error ${resp.status}: ${bodyPreview.slice(0, 2000)}`);
+          throw new Error(
+            `Voxtral upstream error ${resp.status}: ${bodyPreview.slice(0, 2000)}`,
+          );
         }
         return { text: "", segments: [] };
       }
@@ -138,13 +150,19 @@ async function voxtralTranscribe(
       const result = (await resp.json()) as any;
       const text = result.text || "";
       const rawSegments = result.segments || [];
-      const segments: Array<{ text: string; speaker: string; start: number; end: number }> = [];
+      const segments: Array<{
+        text: string;
+        speaker: string;
+        start: number;
+        end: number;
+      }> = [];
 
       let missingSpeakerCount = 0;
       for (const s of rawSegments) {
         const spkRaw = s.speaker;
         const segText = s.text || "";
-        const start = typeof s.start === "number" ? s.start : parseFloat(s.start) || 0;
+        const start =
+          typeof s.start === "number" ? s.start : parseFloat(s.start) || 0;
         const end = typeof s.end === "number" ? s.end : parseFloat(s.end) || 0;
 
         if (diarize && spkRaw == null) missingSpeakerCount++;
@@ -157,7 +175,11 @@ async function voxtralTranscribe(
         });
       }
 
-      if (diarize && segments.length > 0 && missingSpeakerCount === segments.length) {
+      if (
+        diarize &&
+        segments.length > 0 &&
+        missingSpeakerCount === segments.length
+      ) {
         return await llmDiarizeFallback(segments, text);
       }
 
@@ -165,7 +187,7 @@ async function voxtralTranscribe(
     } catch (err: any) {
       if (err.message?.startsWith("Voxtral upstream error")) throw err;
       console.error(
-        `[Voxtral Connection Trace Error] attempt=${attempt + 1}/${maxRetries + 1}: ${err}`
+        `[Voxtral Connection Trace Error] attempt=${attempt + 1}/${maxRetries + 1}: ${err}`,
       );
       if (attempt < maxRetries) {
         await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt));
@@ -181,11 +203,21 @@ async function voxtralTranscribe(
 }
 
 async function llmDiarizeFallback(
-  segments: Array<{ text: string; speaker: string; start: number; end: number }>,
-  fullText: string
+  segments: Array<{
+    text: string;
+    speaker: string;
+    start: number;
+    end: number;
+  }>,
+  fullText: string,
 ): Promise<{
   text: string;
-  segments: Array<{ text: string; speaker: string; start: number; end: number }>;
+  segments: Array<{
+    text: string;
+    speaker: string;
+    start: number;
+    end: number;
+  }>;
 }> {
   console.warn("Mistral API missed tags. Initiating LLM Dictionary Fallback!");
   const scriptBlock = segments.map((s, i) => `[${i}]: ${s.text}`).join("\n");
@@ -225,7 +257,12 @@ async function llmDiarizeFallback(
 }
 
 async function classifyRoles(
-  segments: Array<{ text: string; speaker: string; start: number; end: number }>
+  segments: Array<{
+    text: string;
+    speaker: string;
+    start: number;
+    end: number;
+  }>,
 ): Promise<Record<string, string>> {
   const samples: Record<string, string[]> = {};
   const freshCounts: Record<string, number> = {};
@@ -243,12 +280,18 @@ async function classifyRoles(
     }
   }
 
-  const eligible = Object.entries(samples).filter(([spk]) => (freshCounts[spk] || 0) >= 2);
+  const eligible = Object.entries(samples).filter(
+    ([spk]) => (freshCounts[spk] || 0) >= 2,
+  );
 
   const roles: Record<string, string> = {};
 
   for (const seg of segments) {
-    if (seg.speaker === "Doctor" || seg.speaker === "Patient" || seg.speaker === "Nurse") {
+    if (
+      seg.speaker === "Doctor" ||
+      seg.speaker === "Patient" ||
+      seg.speaker === "Nurse"
+    ) {
       roles[seg.speaker] = seg.speaker;
     }
   }
@@ -312,7 +355,13 @@ function normalizeSegments(raw: unknown): Prisma.JsonArray {
 
 export async function saveLiveTranscript(
   appointmentId: string,
-  segments: Array<{ text: string; speaker: string; start: number; end: number; role?: string | null }>
+  segments: Array<{
+    text: string;
+    speaker: string;
+    start: number;
+    end: number;
+    role?: string | null;
+  }>,
 ): Promise<PersistTranscriptResult> {
   const user = await currentUser();
   if (!user) {
@@ -371,7 +420,9 @@ export async function saveLiveTranscript(
   };
 }
 
-export async function confirmAndSaveAppointmentTranscription(appointmentId: string): Promise<PersistTranscriptResult> {
+export async function confirmAndSaveAppointmentTranscription(
+  appointmentId: string,
+): Promise<PersistTranscriptResult> {
   const user = await currentUser();
   if (!user) {
     return { success: false, error: "Unauthorized" };
@@ -435,21 +486,35 @@ export async function confirmAndSaveAppointmentTranscription(appointmentId: stri
 
   try {
     // Download audio
-    const audioResponse = await fetch(appointment.recordingUrl, { method: "GET" });
+    const audioResponse = await fetch(appointment.recordingUrl, {
+      method: "GET",
+    });
     if (!audioResponse.ok) {
       throw new Error(`Could not fetch audio: ${audioResponse.status}`);
     }
     const audioBuffer = await audioResponse.arrayBuffer();
 
     const contentTypeHeader = audioResponse.headers.get("content-type");
-    const [filename, contentType] = inferFilenameAndContentType(appointment.recordingUrl, contentTypeHeader);
+    const [filename, contentType] = inferFilenameAndContentType(
+      appointment.recordingUrl,
+      contentTypeHeader,
+    );
 
     // Transcribe
-    const result = await voxtralTranscribe(audioBuffer, true, filename, contentType, true, 2);
+    const result = await voxtralTranscribe(
+      audioBuffer,
+      true,
+      filename,
+      contentType,
+      true,
+      2,
+    );
     const { text, segments } = result;
 
     if (!text && segments.length === 0) {
-      throw new Error("Transcription provider returned an empty payload after retries");
+      throw new Error(
+        "Transcription provider returned an empty payload after retries",
+      );
     }
 
     if (segments.length === 0 && text) {
@@ -483,7 +548,8 @@ export async function confirmAndSaveAppointmentTranscription(appointmentId: stri
       transcriptSegments: normalizedSegments.length,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Failed to transcribe recording";
+    const message =
+      error instanceof Error ? error.message : "Failed to transcribe recording";
     console.error("confirmAndSaveAppointmentTranscription failed", error);
 
     await prisma.appointment.update({
@@ -532,7 +598,9 @@ export async function getAppointmentTranscriptionStatus(appointmentId: string) {
   return {
     success: true,
     aiStatus: appointment.aiStatus,
-    hasTranscript: Array.isArray(appointment.transcript) && appointment.transcript.length > 0,
+    hasTranscript:
+      Array.isArray(appointment.transcript) &&
+      appointment.transcript.length > 0,
     updatedAt: appointment.updatedAt,
   };
 }
