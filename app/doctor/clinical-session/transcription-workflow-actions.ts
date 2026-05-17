@@ -10,9 +10,11 @@ const VOXTRAL_BASE = "https://api.mistral.ai/v1/audio/transcriptions";
 const VOXTRAL_MODEL = "voxtral-mini-latest";
 
 const GEMMA_BASE_URL =
-  "https://muddasirjaved10--example-qwen3-5-9b-awq-inference-vllmse-a9b4c2.modal.run/v1";
+  process.env.GEMMA_BASE_URL?.trim() ||
+  "https://muddasirjaved10--example-gemma-4-e2b-autoround-it-infere-e112e1.modal.run/v1";
 const GEMMA_API_KEY = "sk-dummy-anything";
-const GEMMA_MODEL = "cyankiwi/Qwen3.5-9B-AWQ-4bit";
+const GEMMA_MODEL =
+  process.env.GEMMA_MODEL?.trim() || "cyankiwi/gemma-4-E4B-it-AWQ-INT4";
 
 const openai = new OpenAI({
   apiKey: GEMMA_API_KEY,
