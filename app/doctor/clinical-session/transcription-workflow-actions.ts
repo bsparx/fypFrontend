@@ -422,6 +422,7 @@ export async function saveLiveTranscript(
 
 export async function confirmAndSaveAppointmentTranscription(
   appointmentId: string,
+  knownRecordingUrl?: string,
 ): Promise<PersistTranscriptResult> {
   const user = await currentUser();
   if (!user) {
@@ -473,7 +474,9 @@ export async function confirmAndSaveAppointmentTranscription(
     };
   }
 
-  if (!appointment.recordingUrl) {
+  const effectiveRecordingUrl = knownRecordingUrl || appointment.recordingUrl;
+
+  if (!effectiveRecordingUrl) {
     return { success: false, error: "No recording found for this appointment" };
   }
 
@@ -486,7 +489,7 @@ export async function confirmAndSaveAppointmentTranscription(
 
   try {
     // Download audio
-    const audioResponse = await fetch(appointment.recordingUrl, {
+    const audioResponse = await fetch(effectiveRecordingUrl, {
       method: "GET",
     });
     if (!audioResponse.ok) {
@@ -496,7 +499,7 @@ export async function confirmAndSaveAppointmentTranscription(
 
     const contentTypeHeader = audioResponse.headers.get("content-type");
     const [filename, contentType] = inferFilenameAndContentType(
-      appointment.recordingUrl,
+      effectiveRecordingUrl,
       contentTypeHeader,
     );
 

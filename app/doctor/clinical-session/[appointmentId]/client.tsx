@@ -655,7 +655,7 @@ export function ClinicalSessionClient({ appointment }: ClinicalSessionClientProp
                 console.log("Uploaded URL:", uploadedRecordingUrl);
                 setRecordingUrl(uploadedRecordingUrl);
 
-                const transcriptionResult = await confirmAndSaveAppointmentTranscription(currentAppointment.id);
+                const transcriptionResult = await confirmAndSaveAppointmentTranscription(currentAppointment.id, uploadedRecordingUrl);
 
                 const latestSessionData = await getClinicalSessionData(currentAppointment.id);
                 if (latestSessionData) {

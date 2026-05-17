@@ -15,7 +15,7 @@ interface ChunkApiResponse {
 
 const SAMPLE_RATE = 32000;
 const MIN_CHUNK_SEC = 10;
-const MAX_CHUNK_SEC = 15; // Strictly below 30s
+const MAX_CHUNK_SEC = 28; // Strictly below 30s
 const SILENCE_SEC = 20;
 const SILENCE_THRESHOLD = 0.015;
 
