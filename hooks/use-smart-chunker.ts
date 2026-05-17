@@ -29,6 +29,7 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
   const totalSamplesRef = useRef(0);
   const silenceSamplesRef = useRef(0);
   const lastSafeSplitRef = useRef(0); // Tracks the last brief pause to cut cleanly
+  const cumulativeSamplesSentRef = useRef(0); // Total samples sent to API so far
 
   const isPausedRef = useRef(false);
   const isActiveRef = useRef(false);
@@ -81,6 +82,11 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
       silenceSamplesRef.current = 0;
       lastSafeSplitRef.current = 0;
 
+      // Advance cumulative timeline even if chunk is discarded (tiny tail)
+      const chunkStartSec = cumulativeSamplesSentRef.current / SAMPLE_RATE;
+      const chunkDurationSec = chunkToProcess.length / SAMPLE_RATE;
+      cumulativeSamplesSentRef.current += chunkToProcess.length;
+
       // Skip tiny artifact chunks
       if (chunkToProcess.length < SAMPLE_RATE * 1) {
         isFlushingRef.current = false;
@@ -120,15 +126,34 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
         }
 
         const data = (await res.json()) as ChunkApiResponse;
-        const newSegments: TranscriptSegment[] = (data.segments || []).map(
-          (seg) => ({
+        const rawSegments = data.segments || [];
+
+        // Calculate timestamps proportionally by word count within this chunk
+        const wordCounts = rawSegments.map((seg) =>
+          seg.text.split(/\s+/).filter((w) => w.length > 0).length
+        );
+        const totalWords = wordCounts.reduce((sum, c) => sum + c, 0);
+
+        let currentTime = chunkStartSec;
+        const newSegments: TranscriptSegment[] = rawSegments.map((seg, i) => {
+          let segDuration = 0;
+          if (totalWords > 0 && chunkDurationSec > 0) {
+            const wordsPerSec = totalWords / chunkDurationSec;
+            segDuration = wordCounts[i] / wordsPerSec;
+          } else if (rawSegments.length > 0 && chunkDurationSec > 0) {
+            segDuration = chunkDurationSec / rawSegments.length;
+          }
+          const start = currentTime;
+          const end = currentTime + segDuration;
+          currentTime = end;
+          return {
             text: seg.text.trim(),
             speaker: seg.type === "doctor" ? "Doctor" : "Patient",
             role: seg.type === "doctor" ? "Doctor" : "Patient",
-            start: 0,
-            end: 0,
-          }),
-        );
+            start,
+            end,
+          };
+        });
 
         setTranscript((prev) => {
           const next = [...prev, ...newSegments];
@@ -175,6 +200,7 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
       isActiveRef.current = true;
       isPausedRef.current = false;
       setError(null);
+      cumulativeSamplesSentRef.current = 0;
 
       abortControllerRef.current = new AbortController();
 
@@ -268,6 +294,7 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
     totalSamplesRef.current = 0;
     silenceSamplesRef.current = 0;
     lastSafeSplitRef.current = 0;
+    cumulativeSamplesSentRef.current = 0;
 
     if (processorRef.current) {
       try {

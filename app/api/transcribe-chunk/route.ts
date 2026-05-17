@@ -23,7 +23,9 @@ async function fileToBase64(file: File): Promise<string> {
 }
 
 function buildUrduPrompt(hasPreviousContext: boolean, formattedRules: string) {
-  return `آپ ایک ماہر میڈیکل ٹرانسکرپشنسٹ (medical transcriptionist) ہیں جو ڈاکٹر اور مریض کے مشوروں کو تحریر کرنے میں مہارت رکھتے ہیں۔
+  return `LANGUAGE LOCK: URDU ONLY. You MUST transcribe this audio entirely in Urdu script (اردو رسم الخط). No Devanagari. No English except medical terms.
+
+آپ ایک ماہر میڈیکل ٹرانسکرپشنسٹ (medical transcriptionist) ہیں جو ڈاکٹر اور مریض کے مشوروں کو تحریر کرنے میں مہارت رکھتے ہیں۔
 آپ کا کام آڈیو سن کر بالکل درست اور بولنے والے کی شناخت (speaker-diarized) کے ساتھ ٹرانسکرپٹ تیار کرنا ہے۔
 
 انتہائی اہم زبان کی شرط (اس پر عمل کرنا لازمی ہے):
@@ -55,7 +57,9 @@ function buildEnglishPrompt(
   hasPreviousContext: boolean,
   formattedRules: string,
 ) {
-  return `You are an expert medical transcriptionist specializing in doctor-patient consultations.
+  return `LANGUAGE LOCK: ENGLISH ONLY. You MUST transcribe this audio entirely in English. No Urdu. No Hindi. No other language. English only.
+
+You are an expert medical transcriptionist specializing in doctor-patient consultations.
 Your job is to listen to the audio and produce a perfectly accurate, speaker-diarized transcript — capturing every word exactly as spoken.
 
 CRITICAL LANGUAGE REQUIREMENT:
@@ -63,6 +67,7 @@ CRITICAL LANGUAGE REQUIREMENT:
 - Use standard English spelling and grammar.
 - Retain any medical terminology exactly as spoken (e.g., "hypertension", "metformin").
 - Do NOT paraphrase, summarize, clean up, or correct the speech. Transcribe every "um", "uh", false start, and repetition verbatim.
+- NEVER output Urdu, Hindi, or any non-English script.
 
 MANDATORY RULES FOR SPEAKER DIARIZATION AND CHUNK CONTINUITY:
 ${formattedRules}
@@ -82,6 +87,14 @@ Example:
     {"type":"doctor","text":"Okay, and does the pain radiate anywhere?"}
   ]
 }`;
+}
+
+/** Detect if text contains significant Arabic/Urdu script (Unicode U+0600–U+06FF) */
+function containsUrduScript(text: string): boolean {
+  const urduChars = text.match(/[\u0600-\u06FF]/g);
+  if (!urduChars) return false;
+  const totalChars = text.replace(/\s/g, "").length;
+  return totalChars > 0 && urduChars.length / totalChars > 0.15;
 }
 
 export async function POST(req: NextRequest) {
@@ -153,8 +166,8 @@ export async function POST(req: NextRequest) {
       );
 
       userText = hasPreviousContext
-        ? `${previousContext}\n\nTask: Transcribe the current audio clip. Ensure the transition from the previous context into this chunk is seamless and the correct speaker is assigned to any bridging words.`
-        : "Transcribe this medical consultation audio clip.";
+        ? `${previousContext}\n\nTask: Transcribe the current audio clip in ENGLISH ONLY. Ensure the transition from the previous context into this chunk is seamless and the correct speaker is assigned to any bridging words.`
+        : "Transcribe this medical consultation audio clip in ENGLISH ONLY.";
 
       const combinedPrompt = `${systemPromptText}\n\n${userText}`;
 
@@ -195,15 +208,22 @@ export async function POST(req: NextRequest) {
       const rawSegments = Array.isArray(parsedData.segments)
         ? parsedData.segments
         : [];
-      const segments = rawSegments.map((seg) => ({
-        type: seg.type?.toLowerCase() === "doctor" ? "doctor" : "patient",
-        text: String(seg.text ?? "").trim(),
-      }));
 
-      return NextResponse.json({ segments });
+      // Validate: reject segments that contain Urdu script when English was requested
+      const validatedSegments = rawSegments.map((seg) => {
+        const text = String(seg.text ?? "").trim();
+        if (containsUrduScript(text)) {
+          console.warn("[transcribe-chunk] Urdu script detected in English mode:", text.slice(0, 100));
+          // Return empty text to signal mismatch — frontend can decide how to handle
+          return { type: seg.type?.toLowerCase() === "doctor" ? "doctor" : "patient", text: "" };
+        }
+        return { type: seg.type?.toLowerCase() === "doctor" ? "doctor" : "patient", text };
+      }).filter((seg) => seg.text.length > 0);
+
+      return NextResponse.json({ segments: validatedSegments });
     }
 
-    // Urdu mode (remains untouched as requested)
+    // Urdu mode
     rules = [
       "دو مختلف بولنے والوں کی گفتگو کو کبھی بھی ایک ہی element میں نہ ملائیں۔ یہ ایک بہت بڑی غلطی تصور ہوگی۔",
       'سوال و جواب کے تسلسل پر نظر رکھیں: اگر مریض کسی سوال کا جواب دیتا ہے اور ڈاکٹر فوراً اگلا سوال پوچھتا ہے، تو آپ کو ڈاکٹر کے لیے ایک نیا (NEW) element بنانا لازمی ہے۔\n   - غلط (ملا ہوا): {"type": "patient", "text": "نہیں، ٹھیک ہے۔ اور کیا لیٹنے کے علاوہ کوئی اور چیز ہے جو درد کو بڑھاتی ہے؟"}\n   - درست (الگ الگ): {"type": "patient", "text": "نہیں، ٹھیک ہے۔"}, {"type": "doctor", "text": "اور کیا لیٹنے کے علاوہ کوئی اور چیز ہے جو درد کو بڑھاتی ہے؟"}',
@@ -260,7 +280,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 8000,
       response_format: { type: "json_object" },
     });
-    console.log(response);
+
     const rawContent = response.choices[0]?.message?.content || "{}";
     let parsedData: { segments: Array<{ type: string; text: string }> };
     try {
