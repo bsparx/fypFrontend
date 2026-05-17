@@ -310,6 +310,67 @@ function normalizeSegments(raw: unknown): Prisma.JsonArray {
   return normalized as Prisma.JsonArray;
 }
 
+export async function saveLiveTranscript(
+  appointmentId: string,
+  segments: Array<{ text: string; speaker: string; start: number; end: number; role?: string | null }>
+): Promise<PersistTranscriptResult> {
+  const user = await currentUser();
+  if (!user) {
+    return { success: false, error: "Unauthorized" };
+  }
+
+  const doctor = await prisma.doctorProfile.findFirst({
+    where: {
+      user: {
+        clerkId: user.id,
+      },
+    },
+    select: { id: true },
+  });
+
+  if (!doctor) {
+    return { success: false, error: "Doctor profile not found" };
+  }
+
+  const appointment = await prisma.appointment.findFirst({
+    where: {
+      id: appointmentId,
+      doctorId: doctor.id,
+    },
+    select: {
+      id: true,
+      transcript: true,
+    },
+  });
+
+  if (!appointment) {
+    return { success: false, error: "Appointment not found" };
+  }
+
+  if (!segments || segments.length === 0) {
+    return { success: false, error: "No live transcript segments provided" };
+  }
+
+  const normalizedSegments = normalizeSegments(segments);
+
+  await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: {
+      transcript: normalizedSegments,
+      aiStatus: "COMPLETED",
+    },
+  });
+
+  revalidatePath(`/doctor/clinical-session/${appointment.id}`);
+  revalidatePath("/doctor/dashboard");
+
+  return {
+    success: true,
+    aiStatus: "COMPLETED",
+    transcriptSegments: normalizedSegments.length,
+  };
+}
+
 export async function confirmAndSaveAppointmentTranscription(appointmentId: string): Promise<PersistTranscriptResult> {
   const user = await currentUser();
   if (!user) {
@@ -338,11 +399,27 @@ export async function confirmAndSaveAppointmentTranscription(appointmentId: stri
       id: true,
       recordingUrl: true,
       aiStatus: true,
+      transcript: true,
     },
   });
 
   if (!appointment) {
     return { success: false, error: "Appointment not found" };
+  }
+
+  // If a live transcript already exists, do NOT re-transcribe with Voxtral.
+  const rawTranscript = appointment.transcript;
+  const hasExistingTranscript =
+    rawTranscript != null &&
+    Array.isArray(rawTranscript) &&
+    (rawTranscript as unknown[]).length > 0;
+
+  if (hasExistingTranscript) {
+    return {
+      success: true,
+      aiStatus: "COMPLETED",
+      transcriptSegments: (rawTranscript as unknown[]).length,
+    };
   }
 
   if (!appointment.recordingUrl) {
