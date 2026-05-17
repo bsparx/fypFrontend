@@ -155,6 +155,46 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
           };
         });
 
+        // Deduplicate repeated prefix when the same speaker's sentence was cut across chunks
+        const prevTranscript = transcriptRef.current;
+        if (prevTranscript.length > 0 && newSegments.length > 0) {
+          const last = prevTranscript[prevTranscript.length - 1];
+          const first = newSegments[0];
+
+          if (last.speaker === first.speaker && last.text.length > 0) {
+            const normLast = last.text.toLowerCase().replace(/\s+/g, " ").trim();
+            const normFirst = first.text.toLowerCase().replace(/\s+/g, " ").trim();
+
+            // Case 1: the entire last segment is repeated as a prefix of the first new segment
+            if (normFirst.startsWith(normLast)) {
+              const cutIndex = first.text.toLowerCase().indexOf(normLast) + normLast.length;
+              const remainder = first.text.slice(cutIndex).trim();
+              if (remainder.length > 0) {
+                first.text = remainder;
+              }
+            }
+            // Case 2: the last few words overlap at the start of the new segment (partial repetition)
+            else {
+              const lastWords = normLast.split(/\s+/);
+              // Try progressively shorter suffixes of the last segment
+              for (let w = lastWords.length; w > 0; w--) {
+                const suffix = lastWords.slice(-w).join(" ");
+                if (suffix.length === 0) continue;
+                const idx = normFirst.indexOf(suffix);
+                if (idx === 0) {
+                  // Found overlap at the very start
+                  const cutIndex = first.text.toLowerCase().indexOf(suffix) + suffix.length;
+                  const remainder = first.text.slice(cutIndex).trim();
+                  if (remainder.length > 0) {
+                    first.text = remainder;
+                  }
+                  break;
+                }
+              }
+            }
+          }
+        }
+
         setTranscript((prev) => {
           const next = [...prev, ...newSegments];
           transcriptRef.current = next;
