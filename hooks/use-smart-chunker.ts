@@ -14,8 +14,8 @@ interface ChunkApiResponse {
 }
 
 const SAMPLE_RATE = 32000;
-const MIN_CHUNK_SEC = 15;
-const MAX_CHUNK_SEC = 25; // Strictly below 30s
+const MIN_CHUNK_SEC = 10;
+const MAX_CHUNK_SEC = 15; // Strictly below 30s
 const SILENCE_SEC = 20;
 const SILENCE_THRESHOLD = 0.015;
 
@@ -129,8 +129,8 @@ export function useSmartChunker(language: "urdu" | "english" = "urdu") {
         const rawSegments = data.segments || [];
 
         // Calculate timestamps proportionally by word count within this chunk
-        const wordCounts = rawSegments.map((seg) =>
-          seg.text.split(/\s+/).filter((w) => w.length > 0).length
+        const wordCounts = rawSegments.map(
+          (seg) => seg.text.split(/\s+/).filter((w) => w.length > 0).length,
         );
         const totalWords = wordCounts.reduce((sum, c) => sum + c, 0);
 
